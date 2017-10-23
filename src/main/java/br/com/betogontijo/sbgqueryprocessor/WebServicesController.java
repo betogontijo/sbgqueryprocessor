@@ -1,5 +1,8 @@
 package br.com.betogontijo.sbgqueryprocessor;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 
@@ -23,23 +26,31 @@ public class WebServicesController {
 	@RequestMapping(value = "/word/{key}", method = RequestMethod.GET)
 	@Cacheable(value = "word", key = "#key")
 	public String findBookByTitle(@PathVariable String key) {
+		long initialTime = System.currentTimeMillis();
 		Node node = nodeRepository.findByWord(key);
-
-		// Format node to output
-		List<Integer> docRefList = node.getDocRefList();
-		List<int[]> occurrencesList = node.getOccurrencesList();
 		String output = "{";
-		Iterator<Integer> docIterator = docRefList.iterator();
-		Iterator<int[]> occurrencesIterator = occurrencesList.iterator();
-		while (docIterator.hasNext()) {
-			output += "(" + docIterator.next() + ",[";
-			int[] next = occurrencesIterator.next();
-			for (int j = 0; j < next.length; j++) {
-				output += next[j] + ",";
+		if (node != null) {
+			// Format node to output
+			List<Integer> docRefList = node.getDocRefList();
+			List<int[]> occurrencesList = node.getOccurrencesList();
+			Iterator<Integer> docIterator = docRefList.iterator();
+			Iterator<int[]> occurrencesIterator = occurrencesList.iterator();
+			while (docIterator.hasNext()) {
+				output += "(" + docIterator.next() + ",[";
+				int[] next = occurrencesIterator.next();
+				for (int j = 0; j < next.length; j++) {
+					output += next[j] + ",";
+				}
+				output = output.substring(0, output.length() - 1) + "]),";
 			}
-			output = output.substring(0, output.length() - 1) + "]),";
+			output = output.substring(0, output.length() - 1);
 		}
-		output = output.substring(0, output.length() - 1) + "}";
+		long finishTime = System.currentTimeMillis();
+
+		Date date = new Date(finishTime - initialTime);
+		DateFormat formatter = new SimpleDateFormat("ss:SSS");
+		String dateFormatted = formatter.format(date);
+		output += "} Fetching Time: " + dateFormatted;
 		return output;
 	}
 }
