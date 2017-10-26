@@ -25,12 +25,11 @@ import br.com.betogontijo.sbgbeans.indexer.repositories.NodeRepository;
 @RestController
 @EnableMongoRepositories("br.com.betogontijo.sbgbeans")
 public class WebServicesController {
+	
 	@Autowired
 	NodeRepository nodeRepository;
 
 	String index = null;
-
-	String data = null;
 
 	@RequestMapping(value = "/*", method = RequestMethod.GET)
 	public String all() throws IOException {
@@ -39,9 +38,6 @@ public class WebServicesController {
 
 	@RequestMapping(value = "/search-result", method = RequestMethod.GET)
 	public String searchResult(@RequestParam(name = "query", required = false) String query) throws IOException {
-		if (query != null) {
-			data = "[{ \"title\": \"" + query + "\",	\"desc\": \"-template-\" }]";
-		}
 		return getIndex();
 	}
 
@@ -64,12 +60,12 @@ public class WebServicesController {
 		return index;
 	}
 
-	@RequestMapping(value = "/getData", method = RequestMethod.GET)
-	public String getData() {
-		if (data != null) {
-			return data;
+	@RequestMapping(value = "/getData/{query}", method = RequestMethod.GET)
+	public String getData(@PathVariable String query) {
+		if (query == null || query.equals("null")) {
+			return "[]";
 		}
-		return "";
+		return "[{ \"title\": \"" + query + "\",	\"desc\": \"-template-\",	\"code\": \"123\" }]";
 	}
 
 	@RequestMapping(value = "/word/{key}", method = RequestMethod.GET)

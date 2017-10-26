@@ -1,19 +1,21 @@
 <style>
-	ul
-	{
-	    list-style-type: none;
-	}
+ul {
+	list-style-type: none;
+}
 </style>
 
 <div class="container">
 	<search-form></search-form>
 	<div class="m-a-2 text-xs-center">
-	    <ul>
-	    	<li *ngFor="#item of response" class="m-t-2">
-	    		<h4>{{item.title}}</h4>
-	    		<p>{{item.desc}}</p>
-	    	</li>
-	    </ul>
-	</div>	
+		<ul>
+			<li *ngFor="#item of response" class="m-t-2">
+				<h2>
+					<a href="https://www.w3schools.com">{{item.title}}</a>
+				</h2>
+				<h4>{{item.desc}}</h4>
+				<p>Similarity: {{item.code}}<p>
+			</li>
+		</ul>
+	</div>
 </div>
 
