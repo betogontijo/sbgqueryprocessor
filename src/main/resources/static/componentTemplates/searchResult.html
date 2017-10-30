@@ -10,7 +10,7 @@ ul {
 		<ul>
 			<li *ngFor="#item of response" class="m-t-2">
 				<h2>
-					<a href="https://www.w3schools.com">{{item.title}}</a>
+					<a href="{{item.uri}}">{{item.title}}</a>
 				</h2>
 				<h4>{{item.desc}}</h4>
 				<p>Similarity: {{item.code}}<p>

@@ -4,11 +4,13 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Iterator;
-import java.util.List;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
@@ -19,17 +21,24 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.betogontijo.sbgbeans.crawler.documents.SbgDocument;
+import br.com.betogontijo.sbgbeans.crawler.repositories.SbgDocumentRepository;
 import br.com.betogontijo.sbgbeans.indexer.documents.Node;
 import br.com.betogontijo.sbgbeans.indexer.repositories.NodeRepository;
 
 @RestController
 @EnableMongoRepositories("br.com.betogontijo.sbgbeans")
 public class WebServicesController {
-	
+
 	@Autowired
 	NodeRepository nodeRepository;
 
+	@Autowired
+	SbgDocumentRepository documentRepository;
+
 	String index = null;
+
+	private static final String ITEM_TEMPLATE = "{ \"title\": \"?\",	\"uri\": \"?\",	\"desc\": \"?\",	\"code\": \"?\" }";
 
 	@RequestMapping(value = "/*", method = RequestMethod.GET)
 	public String all() throws IOException {
@@ -65,7 +74,36 @@ public class WebServicesController {
 		if (query == null || query.equals("null")) {
 			return "[]";
 		}
-		return "[{ \"title\": \"" + query + "\",	\"desc\": \"-template-\",	\"code\": \"123\" }]";
+		Node node = nodeRepository.findByWord(query);
+		if (node != null) {
+			Iterator<Integer> iterator = node.getDocRefList().iterator();
+			String data = "[";
+			while (iterator.hasNext()) {
+				Integer docId = iterator.next();
+				SbgDocument findById = documentRepository.findById(docId);
+				String title = findById.getTitle();
+				if (title == null || title.isEmpty()) {
+					try {
+						String[] split = new URI(findById.getUri()).getPath().split("/");
+						if (split[split.length - 1].isEmpty()) {
+							title = split[split.length - 2];
+						} else {
+							title = split[split.length - 1];
+						}
+					} catch (URISyntaxException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+				data += ITEM_TEMPLATE.replaceFirst("\\?", title).replaceFirst("\\?", findById.getUri()) + ",";
+				if (data.length() > 1200) {
+					break;
+				}
+			}
+			data = data.substring(0, data.length() - 1) + "]";
+			return data;
+		}
+		return "[]";
 	}
 
 	@RequestMapping(value = "/word/{key}", method = RequestMethod.GET)
@@ -87,8 +125,8 @@ public class WebServicesController {
 		String output = "{";
 		if (node != null) {
 			// Format node to output
-			List<Integer> docRefList = node.getDocRefList();
-			List<int[]> occurrencesList = node.getOccurrencesList();
+			Set<Integer> docRefList = node.getDocRefList();
+			Set<int[]> occurrencesList = node.getOccurrencesList();
 			Iterator<Integer> docIterator = docRefList.iterator();
 			Iterator<int[]> occurrencesIterator = occurrencesList.iterator();
 			while (docIterator.hasNext()) {
