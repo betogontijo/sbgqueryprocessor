@@ -37,6 +37,13 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- https://mvnrepository.com/artifact/org.json/json -->
+		<dependency>
+			<groupId>org.json</groupId>
+			<artifactId>json</artifactId>
+		</dependency>
+
+
 		<dependency>
 			<groupId>br.com.betogontijo</groupId>
 			<artifactId>SbgBeans</artifactId>

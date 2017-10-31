@@ -6,9 +6,10 @@ ul {
 
 <div class="container">
 	<search-form></search-form>
-	<div class="m-a-2 text-xs-center">
+	<div class="m-a-2 text-xs-center" style="display: inline-block;">
+		<div style="float: left;">{{response[0]}} results ({{response[1]}} millisecond)</div>
 		<ul>
-			<li *ngFor="#item of response" class="m-t-2">
+			<li *ngFor="#item of response | slice:2" class="m-t-2">
 				<h2>
 					<a href="{{item.uri}}">{{item.title}}</a>
 				</h2>

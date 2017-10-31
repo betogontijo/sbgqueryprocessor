@@ -8,10 +8,14 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
@@ -37,8 +41,6 @@ public class WebServicesController {
 	SbgDocumentRepository documentRepository;
 
 	String index = null;
-
-	private static final String ITEM_TEMPLATE = "{ \"title\": \"?\",	\"uri\": \"?\",	\"desc\": \"?\",	\"code\": \"?\" }";
 
 	@RequestMapping(value = "/*", method = RequestMethod.GET)
 	public String all() throws IOException {
@@ -71,13 +73,18 @@ public class WebServicesController {
 
 	@RequestMapping(value = "/getData/{query}", method = RequestMethod.GET)
 	public String getData(@PathVariable String query) {
+		List<Object> data = new ArrayList<Object>();
+		Long responseTime = 0L;
+		Integer docCount = 0;
+		data.add(responseTime);
+		data.add(docCount);
 		if (query == null || query.equals("null")) {
-			return "[]";
+			return data.toString();
 		}
+		responseTime = System.currentTimeMillis();
 		Node node = nodeRepository.findByWord(query);
 		if (node != null) {
 			Iterator<Integer> iterator = node.getDocRefList().iterator();
-			String data = "[";
 			while (iterator.hasNext()) {
 				Integer docId = iterator.next();
 				SbgDocument findById = documentRepository.findById(docId);
@@ -95,15 +102,25 @@ public class WebServicesController {
 						e.printStackTrace();
 					}
 				}
-				data += ITEM_TEMPLATE.replaceFirst("\\?", title).replaceFirst("\\?", findById.getUri()) + ",";
-				if (data.length() > 1200) {
-					break;
+				JSONObject item = new JSONObject();
+				try {
+					item.put("title", title);
+					item.put("uri", findById.getUri());
+					data.add(item);
+				} catch (JSONException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
 				}
+				// if (data.length() > 1200) {
+				// break;
+				// }
+				docCount++;
 			}
-			data = data.substring(0, data.length() - 1) + "]";
-			return data;
 		}
-		return "[]";
+		responseTime = System.currentTimeMillis() - responseTime;
+		data.set(0,responseTime);
+		data.set(1,docCount);
+		return data.toString();
 	}
 
 	@RequestMapping(value = "/word/{key}", method = RequestMethod.GET)
