@@ -10,9 +10,14 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -75,52 +80,69 @@ public class WebServicesController {
 	public String getData(@PathVariable String query) {
 		List<Object> data = new ArrayList<Object>();
 		Long responseTime = 0L;
-		Integer docCount = 0;
-		data.add(responseTime);
-		data.add(docCount);
-		if (query == null || query.equals("null")) {
-			return data.toString();
-		}
-		responseTime = System.currentTimeMillis();
-		Node node = nodeRepository.findByWord(query);
-		if (node != null) {
-			Iterator<Integer> iterator = node.getDocRefList().iterator();
-			while (iterator.hasNext()) {
-				Integer docId = iterator.next();
-				SbgDocument findById = documentRepository.findById(docId);
-				String title = findById.getTitle();
-				if (title == null || title.isEmpty()) {
-					try {
-						String[] split = new URI(findById.getUri()).getPath().split("/");
-						if (split[split.length - 1].isEmpty()) {
-							title = split[split.length - 2];
-						} else {
-							title = split[split.length - 1];
-						}
-					} catch (URISyntaxException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-				}
+		StringBuilder fetchStatistics = new StringBuilder("\"? results (? seconds)\"");
+		data.add(fetchStatistics);
+		Map<Integer, QueryItem> result = new HashMap<Integer, QueryItem>();
+		if (query != null && !query.equals("null")) {
+			responseTime = System.currentTimeMillis();
+			List<String> list = new ArrayList<String>();
+			Matcher m = Pattern.compile("([^\"]\\S*|\".+?\")\\s*").matcher(query);
+			while (m.find()) {
+				list.add(m.group(1)); // Add .replace("\"", "") to remove
+										// surrounding quotes.
+			}
+			for (String string : list) {
+				queryWord(string, result);
+			}
+			for (Entry<Integer, QueryItem> entry : result.entrySet()) {
+				SbgDocument document = entry.getValue().getDocument();
 				JSONObject item = new JSONObject();
 				try {
-					item.put("title", title);
-					item.put("uri", findById.getUri());
+					item.put("title", document.getTitle());
+					item.put("uri", document.getUri());
 					data.add(item);
 				} catch (JSONException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				// if (data.length() > 1200) {
-				// break;
-				// }
-				docCount++;
+				data.add(item);
 			}
 		}
 		responseTime = System.currentTimeMillis() - responseTime;
-		data.set(0,responseTime);
-		data.set(1,docCount);
+		Date date = new Date(responseTime);
+		DateFormat formatter = new SimpleDateFormat("s.SSS");
+		String dateFormatted = formatter.format(date);
+		int resultIndex = fetchStatistics.indexOf("?");
+		fetchStatistics.replace(resultIndex, resultIndex + 1, result.size() + "");
+		int reponseIndex = fetchStatistics.indexOf("?");
+		fetchStatistics.replace(reponseIndex, reponseIndex + 1, dateFormatted);
 		return data.toString();
+	}
+
+	private void queryWord(String query, Map<Integer, QueryItem> result) {
+		Node node = nodeRepository.findByWord(query);
+		if (node != null) {
+			List<SbgDocument> resultDocs = documentRepository.findByWord(query);
+			for (SbgDocument sbgDocument : resultDocs) {
+				Integer docId = sbgDocument.getId();
+				String title = sbgDocument.getTitle();
+				if (title == null || title.isEmpty()) {
+					try {
+						String[] split = new URI(sbgDocument.getUri()).getPath().split("/");
+						title = (split[split.length - 1].isEmpty() ? split[split.length - 2] : split[split.length - 1]);
+					} catch (URISyntaxException e) {
+						e.printStackTrace();
+					}
+					sbgDocument.setTitle(title);
+				}
+				QueryItem queryItem = result.get(docId);
+				if (queryItem != null) {
+					queryItem.increaseCount();
+				} else {
+					result.put(docId, new QueryItem(sbgDocument));
+				}
+			}
+		}
 	}
 
 	@RequestMapping(value = "/word/{key}", method = RequestMethod.GET)
