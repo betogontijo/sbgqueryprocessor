@@ -6,15 +6,10 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -76,109 +71,99 @@ public class WebServicesController {
 		return index;
 	}
 
+	Long responseTime;
+
 	@RequestMapping(value = "/getData/{query}", method = RequestMethod.GET)
 	public String getData(@PathVariable String query) {
 		List<Object> data = new ArrayList<Object>();
-		Long responseTime = 0L;
-		StringBuilder fetchStatistics = new StringBuilder("\"? results (? seconds)\"");
+		responseTime = System.currentTimeMillis();
+		StringBuilder fetchStatistics = new StringBuilder();
 		data.add(fetchStatistics);
-		Map<Integer, QueryItem> result = new HashMap<Integer, QueryItem>();
 		if (query != null && !query.equals("null")) {
-			responseTime = System.currentTimeMillis();
-			List<String> list = new ArrayList<String>();
-			Matcher m = Pattern.compile("([^\"]\\S*|\".+?\")\\s*").matcher(query);
-			while (m.find()) {
-				list.add(m.group(1)); // Add .replace("\"", "") to remove
-										// surrounding quotes.
-			}
-			for (String string : list) {
-				queryWord(string, result);
-			}
-			for (Entry<Integer, QueryItem> entry : result.entrySet()) {
-				SbgDocument document = entry.getValue().getDocument();
-				JSONObject item = new JSONObject();
-				try {
-					item.put("title", document.getTitle());
-					item.put("uri", document.getUri());
-					data.add(item);
-				} catch (JSONException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-				data.add(item);
+			for (String string : splitQuery(query)) {
+				data.addAll(queryWord(string));
 			}
 		}
 		responseTime = System.currentTimeMillis() - responseTime;
-		Date date = new Date(responseTime);
-		DateFormat formatter = new SimpleDateFormat("s.SSS");
-		String dateFormatted = formatter.format(date);
-		int resultIndex = fetchStatistics.indexOf("?");
-		fetchStatistics.replace(resultIndex, resultIndex + 1, result.size() + "");
-		int reponseIndex = fetchStatistics.indexOf("?");
-		fetchStatistics.replace(reponseIndex, reponseIndex + 1, dateFormatted);
+		fetchStatistics.append("\"").append(data.size() - 1).append(" results (").append(responseTime).append(" ms)\"");
 		return data.toString();
 	}
 
-	private void queryWord(String query, Map<Integer, QueryItem> result) {
-		Node node = nodeRepository.findByWord(query);
+	private List<String> splitQuery(String query) {
+		List<String> list = new ArrayList<String>();
+		Matcher m = Pattern.compile("([^\"]\\S*|\".+?\")\\s*").matcher(query);
+		while (m.find()) {
+			list.add(m.group(1).replace("\"", ""));
+		}
+		return list;
+	}
+
+	@Cacheable(value = "word")
+	private List<Object> queryWord(String query) {
+		List<Object> data = new ArrayList<Object>();
+		String[] items = query.split(" ");
+		Node node = nodeRepository.findByWord(items[0]);
 		if (node != null) {
-			List<SbgDocument> resultDocs = documentRepository.findByWord(query);
-			for (SbgDocument sbgDocument : resultDocs) {
-				Integer docId = sbgDocument.getId();
-				String title = sbgDocument.getTitle();
-				if (title == null || title.isEmpty()) {
+			Set<Integer> docRefList = nodeRepository.findByWord(items[0]).getDocRefList();
+			for (int i = 1; i < items.length; i++) {
+				String string = items[i];
+				docRefList.retainAll(nodeRepository.findByWord(string).getDocRefList());
+			}
+			Iterator<Integer> iterator = docRefList.iterator();
+			while (iterator.hasNext()) {
+				Integer docId = iterator.next();
+				SbgDocument sbgDocument = documentRepository.findById(docId);
+				Map<String, int[]> wordsMap = sbgDocument.getWordsMap();
+				if (isDocumentValid(1, items, wordsMap)) {
+					JSONObject item = new JSONObject();
 					try {
-						String[] split = new URI(sbgDocument.getUri()).getPath().split("/");
-						title = (split[split.length - 1].isEmpty() ? split[split.length - 2] : split[split.length - 1]);
-					} catch (URISyntaxException e) {
+						item.put("title", getDocumentTitle(sbgDocument));
+						item.put("uri", sbgDocument.getUri());
+						data.add(item);
+					} catch (JSONException e) {
+						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
-					sbgDocument.setTitle(title);
-				}
-				QueryItem queryItem = result.get(docId);
-				if (queryItem != null) {
-					queryItem.increaseCount();
-				} else {
-					result.put(docId, new QueryItem(sbgDocument));
 				}
 			}
 		}
+		return data;
 	}
 
-	@RequestMapping(value = "/word/{key}", method = RequestMethod.GET)
-	public String findBookByTitle(@PathVariable String key) {
-		long initialTime = System.currentTimeMillis();
-		String output = findAndFormat(key);
-		long finishTime = System.currentTimeMillis();
-
-		Date date = new Date(finishTime - initialTime);
-		DateFormat formatter = new SimpleDateFormat("ss:SSS");
-		String dateFormatted = formatter.format(date);
-		output += "Fetching Time: " + dateFormatted;
-		return output;
-	}
-
-	@Cacheable(value = "word", key = "#key")
-	private String findAndFormat(String key) {
-		Node node = nodeRepository.findByWord(key);
-		String output = "{";
-		if (node != null) {
-			// Format node to output
-			Set<Integer> docRefList = node.getDocRefList();
-			Set<int[]> occurrencesList = node.getOccurrencesList();
-			Iterator<Integer> docIterator = docRefList.iterator();
-			Iterator<int[]> occurrencesIterator = occurrencesList.iterator();
-			while (docIterator.hasNext()) {
-				output += "(" + docIterator.next() + ",[";
-				int[] next = occurrencesIterator.next();
-				for (int j = 0; j < next.length; j++) {
-					output += next[j] + ",";
-				}
-				output = output.substring(0, output.length() - 1) + "]),";
+	private String getDocumentTitle(SbgDocument sbgDocument) {
+		String title = sbgDocument.getTitle();
+		if (title == null || title.isEmpty()) {
+			try {
+				String[] split = new URI(sbgDocument.getUri()).getPath().split("/");
+				title = (split[split.length - 1].isEmpty() ? split[split.length - 2] : split[split.length - 1]);
+			} catch (URISyntaxException e) {
+				e.printStackTrace();
 			}
-			output = output.substring(0, output.length() - 1);
+			sbgDocument.setTitle(title);
 		}
-		output += "} ";
-		return output;
+		return title;
+	}
+
+	private boolean isDocumentValid(int i, String[] items, Map<String, int[]> wordsMap) {
+		if (items.length == i) {
+			return true;
+		}
+		int[] lastPos = wordsMap.get(items[i - 1]);
+		int[] currentPos = wordsMap.get(items[i]);
+		if (currentPos != null) {
+			int k;
+			int m = 0;
+			int l = 0;
+			for (int j = 0; j < currentPos.length; j++) {
+				k = currentPos[j];
+				while (m < k - 1 && l < lastPos.length) {
+					m = lastPos[l++];
+				}
+				if (m == k - 1) {
+					return isDocumentValid(++i, items, wordsMap);
+				}
+			}
+		}
+		return false;
 	}
 }
