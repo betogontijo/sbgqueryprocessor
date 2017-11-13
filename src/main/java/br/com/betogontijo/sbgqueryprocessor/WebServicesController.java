@@ -7,6 +7,8 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -14,8 +16,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.json.JSONException;
-import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
@@ -75,13 +75,26 @@ public class WebServicesController {
 
 	@RequestMapping(value = "/getData/{query}", method = RequestMethod.GET)
 	public String getData(@PathVariable String query) {
-		List<Object> data = new ArrayList<Object>();
+		Set<Object> data = new HashSet<Object>();
 		responseTime = System.currentTimeMillis();
 		StringBuilder fetchStatistics = new StringBuilder();
 		data.add(fetchStatistics);
 		if (query != null && !query.equals("null")) {
-			for (String string : splitQuery(query)) {
-				data.addAll(queryWord(string));
+			Map<String, SbgTerm> result = new HashMap<String, SbgTerm>();
+			List<String> terms = splitQuery(query);
+			List<Double> termsRank = new ArrayList<Double>();
+			int docSize = (int) documentRepository.count();
+			for (String term : terms) {
+				int freq = 0;
+				for (String string : terms) {
+					if (terms.contains(string)) {
+						freq++;
+					}
+				}
+				double idf = queryWord(term, data, result, docSize);
+				// need the document list here
+				double tf = 1 + log(freq);
+				termsRank.add(idf * tf);
 			}
 		}
 		responseTime = System.currentTimeMillis() - responseTime;
@@ -99,35 +112,45 @@ public class WebServicesController {
 	}
 
 	@Cacheable(value = "word")
-	private List<Object> queryWord(String query) {
-		List<Object> data = new ArrayList<Object>();
+	private double queryWord(String query, Set<Object> data, Map<String, SbgTerm> result, int docSize) {
 		String[] items = query.split(" ");
 		Node node = nodeRepository.findByWord(items[0]);
+		double idf = 0;
 		if (node != null) {
 			Set<Integer> docRefList = nodeRepository.findByWord(items[0]).getDocRefList();
 			for (int i = 1; i < items.length; i++) {
 				String string = items[i];
 				docRefList.retainAll(nodeRepository.findByWord(string).getDocRefList());
 			}
-			Iterator<Integer> iterator = docRefList.iterator();
-			while (iterator.hasNext()) {
-				Integer docId = iterator.next();
-				SbgDocument sbgDocument = documentRepository.findById(docId);
-				Map<String, int[]> wordsMap = sbgDocument.getWordsMap();
-				if (isDocumentValid(1, items, wordsMap)) {
-					JSONObject item = new JSONObject();
-					try {
-						item.put("title", getDocumentTitle(sbgDocument));
-						item.put("uri", sbgDocument.getUri());
-						data.add(item);
-					} catch (JSONException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+			if (docRefList.size() > 0) {
+				Iterator<Integer> iterator = docRefList.iterator();
+				idf = log(docSize / docRefList.size());
+				while (iterator.hasNext()) {
+					Integer docId = iterator.next();
+					SbgDocument sbgDocument = documentRepository.findById(docId);
+					Map<String, int[]> wordsMap = sbgDocument.getWordsMap();
+					if (isDocumentValid(1, items, wordsMap)) {
+						SbgTerm term = new SbgTerm();
+						term.setTitle(getDocumentTitle(sbgDocument));
+						term.setUri(sbgDocument.getUri());
+						int freq = wordsMap.get(items[0]).length;
+						double tf = 1 + log(freq);
+						SbgTerm sbgTerm = result.get(sbgDocument.getUri());
+						if (sbgTerm != null) {
+							sbgTerm.setRank(sbgTerm.getRank() + (tf * idf));
+						} else {
+							term.setRank(tf * idf);
+							result.put(sbgDocument.getUri(), term);
+						}
 					}
 				}
 			}
 		}
-		return data;
+		return idf;
+	}
+
+	private double log(long freq) {
+		return Math.log(freq);
 	}
 
 	private String getDocumentTitle(SbgDocument sbgDocument) {
