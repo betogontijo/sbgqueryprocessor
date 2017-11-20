@@ -7,8 +7,9 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +17,8 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
@@ -74,11 +77,9 @@ public class WebServicesController {
 	Long responseTime;
 
 	@RequestMapping(value = "/getData/{query}", method = RequestMethod.GET)
-	public String getData(@PathVariable String query) {
-		Set<Object> data = new HashSet<Object>();
+	public String getData(@PathVariable String query) throws JSONException {
+		List<Object> data = new ArrayList<Object>();
 		responseTime = System.currentTimeMillis();
-		StringBuilder fetchStatistics = new StringBuilder();
-		data.add(fetchStatistics);
 		if (query != null && !query.equals("null")) {
 			Map<String, SbgTerm> result = new HashMap<String, SbgTerm>();
 			List<String> terms = splitQuery(query);
@@ -91,14 +92,48 @@ public class WebServicesController {
 						freq++;
 					}
 				}
-				double idf = queryWord(term, data, result, docSize);
-				// need the document list here
+				List<SbgTerm> fetchWord = fetchWord(term, result);
+				double idf = log(docSize / fetchWord.size());
 				double tf = 1 + log(freq);
+				double w = tf * idf;
+				for (SbgTerm sbgTerm : fetchWord) {
+					sbgTerm.setRank(sbgTerm.getRank() * idf * w);
+				}
 				termsRank.add(idf * tf);
+			}
+			// <a href="{{item.uri}}">{{item.title}}</a>
+			// </h2>
+			// <h4>{{item.desc}}</h4>
+			// <p>Similarity: {{item.code}}<p>
+			for (SbgTerm sbgTerm2 : result.values()) {
+				JSONObject jsonObject = new JSONObject();
+				jsonObject.put("uri", sbgTerm2.getUri());
+				jsonObject.put("title", sbgTerm2.getTitle());
+				jsonObject.put("code", sbgTerm2.getRank());
+				data.add(jsonObject);
 			}
 		}
 		responseTime = System.currentTimeMillis() - responseTime;
+		StringBuilder fetchStatistics = new StringBuilder();
 		fetchStatistics.append("\"").append(data.size() - 1).append(" results (").append(responseTime).append(" ms)\"");
+
+		Collections.sort(data, new Comparator<Object>() {
+			@Override
+			public int compare(Object o1, Object o2) {
+				JSONObject term1 = (JSONObject) o1;
+				JSONObject term2 = (JSONObject) o2;
+				try {
+					return Double.valueOf(term2.get("code").toString()).compareTo(Double.valueOf(term1.get("code").toString()));
+				} catch (NumberFormatException | JSONException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+					return 0;
+				}
+			}
+		});
+
+		data.set(0, fetchStatistics.toString());
+
 		return data.toString();
 	}
 
@@ -112,10 +147,10 @@ public class WebServicesController {
 	}
 
 	@Cacheable(value = "word")
-	private double queryWord(String query, Set<Object> data, Map<String, SbgTerm> result, int docSize) {
+	private List<SbgTerm> fetchWord(String query, Map<String, SbgTerm> result) {
 		String[] items = query.split(" ");
 		Node node = nodeRepository.findByWord(items[0]);
-		double idf = 0;
+		List<SbgTerm> wordResult = new ArrayList<SbgTerm>();
 		if (node != null) {
 			Set<Integer> docRefList = nodeRepository.findByWord(items[0]).getDocRefList();
 			for (int i = 1; i < items.length; i++) {
@@ -124,29 +159,30 @@ public class WebServicesController {
 			}
 			if (docRefList.size() > 0) {
 				Iterator<Integer> iterator = docRefList.iterator();
-				idf = log(docSize / docRefList.size());
 				while (iterator.hasNext()) {
 					Integer docId = iterator.next();
 					SbgDocument sbgDocument = documentRepository.findById(docId);
 					Map<String, int[]> wordsMap = sbgDocument.getWordsMap();
 					if (isDocumentValid(1, items, wordsMap)) {
-						SbgTerm term = new SbgTerm();
-						term.setTitle(getDocumentTitle(sbgDocument));
-						term.setUri(sbgDocument.getUri());
+						SbgTerm sbgTerm = result.get(sbgDocument.getUri());
 						int freq = wordsMap.get(items[0]).length;
 						double tf = 1 + log(freq);
-						SbgTerm sbgTerm = result.get(sbgDocument.getUri());
 						if (sbgTerm != null) {
-							sbgTerm.setRank(sbgTerm.getRank() + (tf * idf));
+							sbgTerm.setRank(sbgTerm.getRank() + tf);
 						} else {
-							term.setRank(tf * idf);
+							SbgTerm term = new SbgTerm();
+							term.setTitle(getDocumentTitle(sbgDocument));
+							term.setUri(sbgDocument.getUri());
+							term.setRank(tf);
+							// TODO Key should use document and term
 							result.put(sbgDocument.getUri(), term);
+							wordResult.add(term);
 						}
 					}
 				}
 			}
 		}
-		return idf;
+		return wordResult;
 	}
 
 	private double log(long freq) {
