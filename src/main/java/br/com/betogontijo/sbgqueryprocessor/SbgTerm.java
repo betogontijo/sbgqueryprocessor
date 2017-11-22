@@ -6,6 +6,8 @@ public class SbgTerm {
 
 	private String uri;
 
+	private String snippet;
+	
 	private double rank;
 
 	public String getTitle() {
@@ -30,6 +32,14 @@ public class SbgTerm {
 
 	public void setRank(double rank) {
 		this.rank = rank;
+	}
+
+	public String getSnippet() {
+		return snippet;
+	}
+
+	public void setSnippet(String snippet) {
+		this.snippet = snippet;
 	}
 
 }

@@ -3,13 +3,13 @@ var FormComponent = ng.core.Component({
 	directives : [ ng.router.ROUTER_DIRECTIVES ],
 	templateUrl : "componentTemplates/search-form.html",
 }).Class({
-	constructor : function() {
-	},
+	constructor : [ ng.router.RouteParams, 
+					function(params) {
+						this.searchParams = {
+							query : params.get("query")
+						};
+					} ],
 	ngOnInit : function() {
-		this.searchParams = {
-			query : ""
-		};
-
 		this.keyup = function(e) {
 			this.searchParams = {
 				query : e.srcElement.value

@@ -10,10 +10,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -32,6 +30,7 @@ import br.com.betogontijo.sbgbeans.crawler.documents.SbgDocument;
 import br.com.betogontijo.sbgbeans.crawler.repositories.SbgDocumentRepository;
 import br.com.betogontijo.sbgbeans.indexer.documents.Node;
 import br.com.betogontijo.sbgbeans.indexer.repositories.NodeRepository;
+import br.com.betogontijo.sbgbeans.utils.WordUtils;
 
 @RestController
 @EnableMongoRepositories("br.com.betogontijo.sbgbeans")
@@ -44,6 +43,8 @@ public class WebServicesController {
 	SbgDocumentRepository documentRepository;
 
 	String index = null;
+
+	int snippetRange = 10;
 
 	@RequestMapping(value = "/*", method = RequestMethod.GET)
 	public String all() throws IOException {
@@ -86,6 +87,7 @@ public class WebServicesController {
 			List<Double> termsRank = new ArrayList<Double>();
 			int docSize = (int) documentRepository.count();
 			for (String term : terms) {
+				term = WordUtils.normalize(term);
 				int freq = 0;
 				for (String string : terms) {
 					if (terms.contains(string)) {
@@ -93,7 +95,10 @@ public class WebServicesController {
 					}
 				}
 				List<SbgTerm> fetchWord = fetchWord(term, result);
-				double idf = log(docSize / fetchWord.size());
+				double idf = 0;
+				if (fetchWord.size() > 0) {
+					idf = log(docSize / fetchWord.size());
+				}
 				double tf = 1 + log(freq);
 				double w = tf * idf;
 				for (SbgTerm sbgTerm : fetchWord) {
@@ -101,38 +106,35 @@ public class WebServicesController {
 				}
 				termsRank.add(idf * tf);
 			}
-			// <a href="{{item.uri}}">{{item.title}}</a>
-			// </h2>
-			// <h4>{{item.desc}}</h4>
-			// <p>Similarity: {{item.code}}<p>
 			for (SbgTerm sbgTerm2 : result.values()) {
 				JSONObject jsonObject = new JSONObject();
 				jsonObject.put("uri", sbgTerm2.getUri());
 				jsonObject.put("title", sbgTerm2.getTitle());
-				jsonObject.put("code", sbgTerm2.getRank());
+				jsonObject.put("snippet", sbgTerm2.getSnippet());
+				jsonObject.put("rank", sbgTerm2.getRank());
 				data.add(jsonObject);
 			}
-		}
-		responseTime = System.currentTimeMillis() - responseTime;
-		StringBuilder fetchStatistics = new StringBuilder();
-		fetchStatistics.append("\"").append(data.size() - 1).append(" results (").append(responseTime).append(" ms)\"");
 
-		Collections.sort(data, new Comparator<Object>() {
-			@Override
-			public int compare(Object o1, Object o2) {
-				JSONObject term1 = (JSONObject) o1;
-				JSONObject term2 = (JSONObject) o2;
-				try {
-					return Double.valueOf(term2.get("code").toString()).compareTo(Double.valueOf(term1.get("code").toString()));
-				} catch (NumberFormatException | JSONException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-					return 0;
+			responseTime = System.currentTimeMillis() - responseTime;
+			StringBuilder fetchStatistics = new StringBuilder();
+			fetchStatistics.append("\"").append(data.size()).append(" results (").append(responseTime).append(" ms)\"");
+			Collections.sort(data, new Comparator<Object>() {
+				@Override
+				public int compare(Object o1, Object o2) {
+					JSONObject term1 = (JSONObject) o1;
+					JSONObject term2 = (JSONObject) o2;
+					try {
+						return Double.valueOf(term2.get("rank").toString())
+								.compareTo(Double.valueOf(term1.get("rank").toString()));
+					} catch (NumberFormatException | JSONException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+						return 0;
+					}
 				}
-			}
-		});
-
-		data.set(0, fetchStatistics.toString());
+			});
+			data.add(0, fetchStatistics.toString());
+		}
 
 		return data.toString();
 	}
@@ -152,27 +154,38 @@ public class WebServicesController {
 		Node node = nodeRepository.findByWord(items[0]);
 		List<SbgTerm> wordResult = new ArrayList<SbgTerm>();
 		if (node != null) {
-			Set<Integer> docRefList = nodeRepository.findByWord(items[0]).getDocRefList();
+			Map<String, Node> words = new HashMap<String, Node>();
+			words.put(node.getWord(), node);
+			List<Integer> docRefList = new ArrayList<Integer>(node.getInvertedList().keySet());
 			for (int i = 1; i < items.length; i++) {
 				String string = items[i];
-				docRefList.retainAll(nodeRepository.findByWord(string).getDocRefList());
+				Node findByWord = nodeRepository.findByWord(string);
+				docRefList.retainAll(findByWord.getInvertedList().keySet());
+				words.put(string, findByWord);
 			}
 			if (docRefList.size() > 0) {
-				Iterator<Integer> iterator = docRefList.iterator();
-				while (iterator.hasNext()) {
-					Integer docId = iterator.next();
-					SbgDocument sbgDocument = documentRepository.findById(docId);
-					Map<String, int[]> wordsMap = sbgDocument.getWordsMap();
-					if (isDocumentValid(1, items, wordsMap)) {
+				for (Integer docRef : docRefList) {
+					int snippetPos = 0;
+					if ((snippetPos = isDocumentValid(1, docRef, items, words,
+							node.getInvertedList().get(docRef)[0])) != -1) {
+						SbgDocument sbgDocument = documentRepository.findById(docRef);
 						SbgTerm sbgTerm = result.get(sbgDocument.getUri());
-						int freq = wordsMap.get(items[0]).length;
+						int freq = words.get(items[0]).getInvertedList().get(docRef).length;
 						double tf = 1 + log(freq);
 						if (sbgTerm != null) {
 							sbgTerm.setRank(sbgTerm.getRank() + tf);
+							wordResult.add(sbgTerm);
 						} else {
 							SbgTerm term = new SbgTerm();
 							term.setTitle(getDocumentTitle(sbgDocument));
 							term.setUri(sbgDocument.getUri());
+							if (snippetPos - snippetRange < 0) {
+								snippetPos += (snippetPos - snippetRange) * (-1);
+							} else if (snippetPos + snippetRange > sbgDocument.getWordsList().size()) {
+								snippetPos += (sbgDocument.getWordsList().size() - snippetPos - snippetRange);
+							}
+							term.setSnippet(String.join(" ", sbgDocument.getWordsList()
+									.subList(snippetPos - snippetRange, snippetPos + snippetRange)));
 							term.setRank(tf);
 							// TODO Key should use document and term
 							result.put(sbgDocument.getUri(), term);
@@ -203,12 +216,12 @@ public class WebServicesController {
 		return title;
 	}
 
-	private boolean isDocumentValid(int i, String[] items, Map<String, int[]> wordsMap) {
+	private int isDocumentValid(int i, Integer docRef, String[] items, Map<String, Node> words, int snippetPos) {
 		if (items.length == i) {
-			return true;
+			return snippetPos;
 		}
-		int[] lastPos = wordsMap.get(items[i - 1]);
-		int[] currentPos = wordsMap.get(items[i]);
+		int[] lastPos = words.get(items[i - 1]).getInvertedList().get(docRef);
+		int[] currentPos = words.get(items[i]).getInvertedList().get(docRef);
 		if (currentPos != null) {
 			int k;
 			int m = 0;
@@ -219,10 +232,10 @@ public class WebServicesController {
 					m = lastPos[l++];
 				}
 				if (m == k - 1) {
-					return isDocumentValid(++i, items, wordsMap);
+					return isDocumentValid(++i, docRef, items, words, k);
 				}
 			}
 		}
-		return false;
+		return -1;
 	}
 }
