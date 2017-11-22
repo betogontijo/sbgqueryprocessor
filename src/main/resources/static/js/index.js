@@ -12,7 +12,7 @@ var FormComponent = ng.core.Component({
 	ngOnInit : function() {
 		this.keyup = function(e) {
 			this.searchParams = {
-				query : e.srcElement.value
+				query : e.target.value
 			};
 		};
 	}
