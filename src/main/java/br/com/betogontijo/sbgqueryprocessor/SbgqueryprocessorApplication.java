@@ -8,9 +8,13 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class SbgqueryprocessorApplication {
 
 	@Autowired
-	WebServicesController controller;
-	
+	WebServiceController webServiceController;
+
 	public static void main(String[] args) {
 		SpringApplication.run(SbgqueryprocessorApplication.class, args);
+		// ClassPathXmlApplicationContext context = new
+		// ClassPathXmlApplicationContext("spring.xml");
+		// context.getBean("webService");
+		// context.close();
 	}
 }
