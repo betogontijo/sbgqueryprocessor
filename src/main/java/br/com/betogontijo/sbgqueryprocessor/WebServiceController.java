@@ -161,8 +161,12 @@ public class WebServiceController {
 			if (docRefList.size() > 0) {
 				for (Integer docRef : docRefList) {
 					int snippetPos = 0;
-					if ((snippetPos = isDocumentValid(1, docRef, items, words,
-							node.getInvertedList().get(docRef)[0])) != -1) {
+					if (node.isCompressed()) {
+						node.uncompress();
+					}
+					int[] wordInvertedList = node.getInvertedList().get(docRef);
+					if ((snippetPos = isDocumentValid(1, docRef, items, words, wordInvertedList,
+							wordInvertedList[0])) != -1) {
 						SbgDocument sbgDocument = documentRepository.findById(docRef);
 						int freq = words.get(items[0]).getInvertedList().get(docRef).length;
 						double tf = 1 + log(freq);
@@ -202,7 +206,8 @@ public class WebServiceController {
 		if (title == null || title.isEmpty()) {
 			try {
 				String[] split = new URI(sbgDocument.getUri()).getPath().split("/");
-				title = (split[split.length - 1].isEmpty() ? split[split.length - 2] : split[split.length - 1]);
+				title = (split[split.length - 1].isEmpty() ? split[(split.length - 2) >= 0 ? split.length - 2 : 0]
+						: split[split.length - 1]);
 			} catch (URISyntaxException e) {
 				e.printStackTrace();
 			}
@@ -211,11 +216,15 @@ public class WebServiceController {
 		return title;
 	}
 
-	private int isDocumentValid(int i, Integer docRef, String[] items, Map<String, Node> words, int snippetPos) {
+	private int isDocumentValid(int i, Integer docRef, String[] items, Map<String, Node> words, int[] lastPos,
+			int snippetPos) {
 		if (items.length == i) {
 			return snippetPos;
 		}
-		int[] lastPos = words.get(items[i - 1]).getInvertedList().get(docRef);
+		Node currentNode = words.get(items[i]);
+		if (currentNode.isCompressed()) {
+			currentNode.uncompress();
+		}
 		int[] currentPos = words.get(items[i]).getInvertedList().get(docRef);
 		if (currentPos != null) {
 			int k;
@@ -227,7 +236,7 @@ public class WebServiceController {
 					m = lastPos[l++];
 				}
 				if (m == k - 1) {
-					return isDocumentValid(++i, docRef, items, words, k);
+					return isDocumentValid(++i, docRef, items, words, currentPos, k);
 				}
 			}
 		}
